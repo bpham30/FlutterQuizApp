@@ -1,125 +1,231 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:quiz_app/quiz.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(const QuizApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class QuizApp extends StatelessWidget {
+  const QuizApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+    return const MaterialApp(
+      title: 'Quiz App',
+      home: SetupScreen(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class SetupScreen extends StatefulWidget {
+  const SetupScreen({super.key});
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<SetupScreen> createState() => _SetupScreenState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _SetupScreenState extends State<SetupScreen> {
+  //quiz settings
+  int _numQuestions = 5;
+  String? _category;
+  String _difficulty = 'easy';
+  String _type = 'multiple';
+  //cateogry list
+  List<Map<String, dynamic>> _categories = [];
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  //loading
+  bool _isLoading = true;
+
+  //init categories
+  @override
+  void initState() {
+    super.initState();
+    _fetchCategories();
+  }
+
+  //fetch categories from api
+  Future<void> _fetchCategories() async {
+    try {
+      //api call
+      final response =
+          await http.get(Uri.parse('https://opentdb.com/api_category.php'));
+      if (response.statusCode == 200) {
+        //parse response
+        final data = json.decode(response.body);
+
+        setState(() {
+          //map response into category list
+          _categories = List<Map<String, dynamic>>.from(
+            data['trivia_categories'].map(
+              (cat) => {'id': cat['id'].toString(), 'name': cat['name']},
+            ),
+          );
+          _isLoading = false;
+        });
+      } else {
+        //error
+        _showError(
+            'Error fetching categories (Status Code: ${response.statusCode})');
+      }
+    } catch (e) {
+      //error
+      _showError('Error fetching categories');
+    }
+  }
+
+  //popup error modal
+  void _showError(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Error'),
+        content: Text(message),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK')),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+        title: const Text(
+          'Quiz Setup',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
         ),
+        backgroundColor: Colors.red,
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+      body: _isLoading
+          ? const Center(
+            //show loading
+              child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column( crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  //categories
+                  DropdownButtonFormField(
+                    value: _category,
+                    decoration:const InputDecoration(labelText: 'Select Category'),
+                    items: _categories
+                        .map((category) => DropdownMenuItem<String>(
+                              value: category['id'],
+                              child: Text(category['name']!),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _category = value;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Number of Questions: $_numQuestions',
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  Slider(
+                    value: _numQuestions.toDouble(),
+                    min: 5,
+                    max: 15,
+                    divisions: 2,
+                    label: _numQuestions.toString(),
+                    onChanged: (value) {
+                      setState(() {
+                        _numQuestions = value.toInt();
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  //difficulty radios
+                  const Text(
+                    'Difficulty',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 8),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: ['easy', 'medium', 'hard'].map((difficulty) {
+                      return RadioListTile<String>(
+                        title: Text(difficulty[0].toUpperCase() +
+                            difficulty.substring(1)),
+                        value: difficulty,
+                        groupValue: _difficulty,
+                        onChanged: (value) {
+                          setState(() {
+                            _difficulty = value!;
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  //question type radios
+                  const Text(
+                    'Question Type',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 8),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: ['multiple', 'boolean'].map((type) {
+                      return RadioListTile<String>(
+                        title: Text(type == 'boolean'
+                            ? 'True/False'
+                            : 'Multiple Choice'),
+                        value: type,
+                        groupValue: _type,
+                        onChanged: (value) {
+                          setState(() {
+                            _type = value!;
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const Spacer(),
+                  //submit button
+                  Center(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.all(16),
+                        textStyle: const TextStyle(fontSize: 16),
+                        minimumSize: const Size(double.infinity, 40),
+                      ),
+                      onPressed: () {
+                        if (_category == null) {
+                          _showError('Select a category to continue!');
+                        } else {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => QuizScreen(
+                              category: _category!,
+                              numQuestions: _numQuestions,
+                              difficulty: _difficulty,
+                              type: _type,
+                            ),
+                          ),
+                        );
+                        }
+                      },
+                      child: const Text('Start Quiz'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }
