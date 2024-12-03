@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -34,7 +36,11 @@ class _QuizScreenState extends State<QuizScreen> {
 
   //clean response
   String cleanRes(String html) {
-    return parse(html).body?.text ?? html;
+    try {
+      return parse(html).body?.text ?? html;
+    } catch (e) {
+      return html;
+    }
   }
 
   //fetch questions from api
@@ -46,6 +52,7 @@ class _QuizScreenState extends State<QuizScreen> {
         final data = json.decode(response.body);
         return List<Map<String, dynamic>>.from(
           data['results'].map((question) => {
+            //clean responses and store in map
                 'question': cleanRes(question['question']),
                 'correct_answer': cleanRes(question['correct_answer']),
                 'incorrect_answers': List<String>.from(
@@ -103,7 +110,7 @@ class _QuizScreenState extends State<QuizScreen> {
             return const Center(
                 //show loading
                 child: CircularProgressIndicator());
-          } 
+          }
           //error handling
           else if (snapshot.hasError) {
             return Center(
@@ -113,11 +120,11 @@ class _QuizScreenState extends State<QuizScreen> {
               ),
             );
           }
-          //display questions 
+          //display questions
           else if (snapshot.hasData) {
             final questions = snapshot.data!;
             return QuizQuestionScreen(questions: questions);
-          } 
+          }
           //no questions found
           else {
             return const Center(child: Text('No questions found.'));
@@ -140,63 +147,188 @@ class QuizQuestionScreen extends StatefulWidget {
 }
 
 class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
-  //init steps and score
+  //init variables
   int _currentIndex = 0;
   int _score = 0;
+  int _timeLeft = 15;
+  late Timer _timer;
 
-  //handle answering questions
-  void _answerQuestion(String selectedAnswer) {
-    final currentQuestion = widget.questions[_currentIndex];
-    final correctAnswer = currentQuestion['correct_answer'];
-    //check if correct
-    if (selectedAnswer == correctAnswer) {
-      //increment score
-      _score++;
-    }
-    //check if more questions
-    if (_currentIndex + 1 < widget.questions.length) {
-      setState(() {
-        //next question
-        _currentIndex++;
-      });
-    } else {
-      //quiz over- navigate to results
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) =>
-              QuizResultsScreen(score: _score, total: widget.questions.length),
-        ),
-      );
-    }
+  //init lists
+  List<String> _shuffledAnswers = [];
+  final Map<int, String> _userAnswers = {};
+
+  //init feedback
+  String? _feedback; 
+  bool _showFeedback = false;
+
+  @override
+  void initState() {
+    super.initState();
+    //shuffle answers and start timer
+    _shuffleAnswers();
+    _startTimer();
   }
 
   @override
-  Widget build(BuildContext context) {
-    //get current question
+  void dispose() {
+    //cancel timer
+    _timer.cancel();
+    super.dispose();
+  }
+
+  //start timer function
+  void _startTimer() {
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      //countdown to 0
+      if (_timeLeft > 0) {
+        setState(() {
+          _timeLeft--;
+        });
+      } else {
+        _timer.cancel();
+        //no answer when time runs out
+        _answerQuestion(null); 
+      }
+    });
+  }
+
+  //reset timer function
+  void _resetTimer() {
+    _timer.cancel();
+    setState(() {
+      //reset timer
+      _timeLeft = 15;
+      //reset feedback
+      _showFeedback = false; 
+    });
+    _startTimer();
+  }
+
+  //shuffle answers function
+  void _shuffleAnswers() {
+    //get current question & answers
     final currentQuestion = widget.questions[_currentIndex];
-    final questionText = Uri.decodeComponent(currentQuestion['question']);
-    //get answers
     final answers = List<String>.from(currentQuestion['incorrect_answers'])
+    //add correct answer
       ..add(currentQuestion['correct_answer'])
       //shuffle answers
       ..shuffle();
+
+    setState(() {
+      //decode answers
+      _shuffledAnswers = answers.map((answer) {
+        try {
+          return Uri.decodeComponent(answer);
+        } catch (e) {
+          return answer;
+        }
+      }).toList();
+    });
+  }
+
+  //answer question function
+  void _answerQuestion(String? selectedAnswer) {
+    //get current question & correct answer
+    final currentQuestion = widget.questions[_currentIndex];
+    final correctAnswer = currentQuestion['correct_answer'];
+
+    //store user answers
+    _userAnswers[_currentIndex] = selectedAnswer ?? 'No Answer';
+
+    //update score & feedback
+    setState(() {
+      //check if answer is correct
+      if (selectedAnswer == correctAnswer) {
+        _score++;
+        _feedback = 'Correct!';
+        //time runs out
+      } else if (_timeLeft == 0) {
+        _feedback =
+            'Time is up! Correct Answer: ${Uri.decodeComponent(correctAnswer)}';
+      }
+      //incorrect answer 
+      else {
+        _feedback =
+            'Incorrect! Correct Answer: ${Uri.decodeComponent(correctAnswer)}';
+      }
+      //display feedback
+      _showFeedback = true;
+    });
+
+    //delay next question to show feedback
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        //next question or end quiz
+        if (_currentIndex + 1 < widget.questions.length) {
+          setState(() {
+            _currentIndex++;
+            _shuffleAnswers();
+            _resetTimer();
+          });
+        } else {
+          //end quiz
+          _timer.cancel();
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => QuizResultsScreen(
+                score: _score,
+                total: widget.questions.length,
+                questions: widget.questions,
+                //store user answers
+                userAnswers: {
+                  for (var i = 0; i < widget.questions.length; i++)
+                    i: {
+                      'question': widget.questions[i]['question'],
+                      'correctAnswer': widget.questions[i]['correct_answer'],
+                      'userAnswer': _userAnswers[i],
+                    },
+                },
+              ),
+            ),
+          );
+        }
+      }
+    });
+  }
+
+  //quiz screen
+  @override
+  Widget build(BuildContext context) {
+    //get current question & answers
+    final currentQuestion = widget.questions[_currentIndex];
+    final questionText = currentQuestion['question'];
+
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        //display question and answers
         children: [
+          //question
           Text(
-            'Question ${_currentIndex + 1} of ${widget.questions.length}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            'Question ${_currentIndex + 1} of ${widget.questions.length}',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          //time left
+          Text(
+            'Time Left: $_timeLeft seconds',
+            style: const TextStyle(fontSize: 16, color: Colors.red),
+          ),
+          const SizedBox(height: 8),
+          //score
+          Text(
+            'Score: $_score',
+            style: const TextStyle(fontSize: 16, color: Colors.green),
           ),
           const SizedBox(height: 16),
+          //question 
           Text(
-            questionText,
+            Uri.decodeComponent(questionText),
             style: const TextStyle(fontSize: 18),
           ),
           const SizedBox(height: 16),
-          ...answers.map((answer) {
-            final decodedAnswer = Uri.decodeComponent(answer);
+          //shuffled answers btns
+          ..._shuffledAnswers.map((answer) {
             return Column(
               children: [
                 ElevatedButton(
@@ -204,15 +336,29 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
                     backgroundColor: Colors.red,
                     minimumSize: const Size(double.infinity, 48),
                   ),
-                  onPressed: () {
-                    _answerQuestion(decodedAnswer);
-                  },
-                  child: Text(decodedAnswer, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 16),),
+                  onPressed:
+                      _showFeedback ? null : () => _answerQuestion(answer),
+                  child: Text(
+                    answer,
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 8), // Added SizedBox here
               ],
             );
           }),
+          //feedback
+          if (_showFeedback)
+            Padding(
+              padding: const EdgeInsets.only(top: 16.0),
+              child: Text(
+                _feedback!,
+                style: TextStyle(
+                  fontSize: 18,
+                  color: _feedback == 'Correct!' ? Colors.green : Colors.red,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -221,12 +367,30 @@ class _QuizQuestionScreenState extends State<QuizQuestionScreen> {
 
 //quiz results screen
 class QuizResultsScreen extends StatelessWidget {
-  //quiz results
+  //get quiz results
   final int score;
   final int total;
+  final List<Map<String, dynamic>> questions;
+  final Map<int, Map<String, dynamic>> userAnswers;
 
-  const QuizResultsScreen(
-      {super.key, required this.score, required this.total});
+//store quiz results
+  const QuizResultsScreen({
+    super.key,
+    required this.score,
+    required this.total,
+    required this.questions,
+    required this.userAnswers,
+  });
+
+  //decode answers with null check
+  String safeDecode(String? value) {
+    if (value == null) return 'No Answer';
+    try {
+      return Uri.decodeComponent(value);
+    } catch (e) {
+      return value;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -235,28 +399,74 @@ class QuizResultsScreen extends StatelessWidget {
         title: const Text('Results'),
         backgroundColor: Colors.red,
       ),
-      body: Center(
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
               'Quiz Completed!',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
+            //score display
             Text(
               'Your Score: $score / $total',
               style: const TextStyle(fontSize: 20),
             ),
             const SizedBox(height: 16),
+            //correct answers & user answers
+            Expanded(
+              child: ListView.builder(
+                itemCount: questions.length,
+                itemBuilder: (context, index) {
+                  final question = safeDecode(userAnswers[index]?['question']);
+                  final correctAnswer =
+                      safeDecode(userAnswers[index]?['correctAnswer']);
+                  final userAnswer =
+                      safeDecode(userAnswers[index]?['userAnswer']);
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Q${index + 1}: $question',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text('Correct Answer: $correctAnswer'),
+                        Text(
+                          'Your Answer: $userAnswer',
+                          style: TextStyle(
+                            color: userAnswer == correctAnswer
+                                ? Colors.green
+                                : Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            //btn to retake / go back to setup
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
+                minimumSize: const Size(double.infinity, 48),
               ),
               onPressed: () {
-                Navigator.of(context).pop(); // Navigate back to setup screen
+                Navigator.of(context).pop();
               },
-              child: const Text('Back to Setup',style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 16),),
+              child: const Text(
+                'Retake Quiz',
+                style: TextStyle(color: Colors.white, fontSize: 16),
+              ),
             ),
           ],
         ),
